@@ -186,7 +186,7 @@ On startup, the script:
 1. Creates a new [Daytona sandbox](https://www.daytona.io/docs/en/sandboxes.md) with the OpenAI key and a fixed Goose provider/model injected as environment variables.
 2. Installs the Goose CLI in the sandbox using the official install script.
 3. Builds a Daytona-aware system prompt containing the sandbox's preview URL pattern.
-4. Creates a PTY, starts a Goose session, and sends the system prompt on the first turn.
+4. Creates a PTY for the Goose session; the system prompt is sent with the first `goose run` call.
 5. Enters a readline loop to send prompts, receive streamed responses, and start any server script the agent wrote.
 6. On Ctrl+C, kills the PTY session, deletes the sandbox (and any background server sessions), and exits.
 
@@ -204,6 +204,8 @@ sandbox = await daytona.create({
     GOOSE_DISABLE_KEYRING: '1',
   },
 })
+
+const activeSandbox = sandbox
 
 const install = await activeSandbox.process.executeCommand(
   'curl -fsSL https://github.com/block/goose/releases/download/stable/download_cli.sh | CONFIGURE=false bash',
@@ -235,11 +237,17 @@ After every turn, the script checks whether `/home/daytona/start.sh` exists and,
 
 ```ts
 const startServerFromScript = async () => {
+  // Only run when Goose has produced a start script for this turn.
   const startScriptCheck = await activeSandbox.process.executeCommand('test -f /home/daytona/start.sh')
   if (startScriptCheck.exitCode !== 0) {
     return
   }
 
+  const startScriptContents = (await activeSandbox.fs.downloadFile('/home/daytona/start.sh')).toString('utf-8')
+  console.log(`Running \`${formatCommandPreview(startScriptContents)}\` via session command...`)
+
+  // Execute server startup outside Goose so long-running/background commands
+  // do not keep the turn (and `goose run`) from completing.
   const sessionId = `goose-server-session-${Date.now()}`
   await activeSandbox.process.createSession(sessionId)
   serverSessions.push(sessionId)

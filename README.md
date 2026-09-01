@@ -1,1 +1,1 @@
-# Project
+# goose-cli-guide
